@@ -1,0 +1,38 @@
+services:
+  # If you already run dnsmasq elsewhere, you can delete this service and simply mount the
+  # dnsmasq-conf volume at /etc/dnsmasq.d inside your existing container.
+  dnsmasq:
+    image: jpillora/dnsmasq
+    container_name: dnsmasq
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "53:53/udp"
+    volumes:
+      - dnsmasq-conf:/etc/dnsmasq.d
+    restart: unless-stopped
+
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DNSMASQ_ADMIN_DB_PATH: /data/dnsmasq-admin.db
+      # Same mounted config directory dnsmasq reads from.
+      DNSMASQ_ADMIN_CONF_PATH: /etc/dnsmasq.d/dnsmasq-admin.conf
+      DNSMASQ_CONTAINER_NAME: dnsmasq
+      DNSMASQ_ADMIN_DOCKER_SOCKET: /var/run/docker.sock
+      # Composed DNS name of the dnsmasq service; use its LAN IP if it lives elsewhere.
+      DNSMASQ_SERVER_IP: dnsmasq
+    volumes:
+      # Shared with the dnsmasq container so the generated config is visible to it.
+      - dnsmasq-conf:/etc/dnsmasq.d
+      # Holds the SQLite database — keep this volume or you lose all records.
+      - app-data:/data
+      # Used only to restart the dnsmasq container after an apply.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  dnsmasq-conf:
+  app-data:
