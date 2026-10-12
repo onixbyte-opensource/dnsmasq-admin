@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation"
 import { Suspense } from "react"
+import { formatDateTime } from "@/lib/datetime"
 import { getRecord } from "@/lib/records"
-import { RecordForm } from "../../_components/RecordForm"
-import { updateRecordAction } from "../../actions"
+import { RecordForm } from "../_components/RecordForm"
+import { updateRecordAction } from "../actions"
 
 export const metadata = { title: "编辑记录" }
 
@@ -31,11 +32,24 @@ async function EditRecordForm({ params }: Pick<PageProps<"/records/[id]">, "para
   if (!record) notFound()
 
   return (
-    <RecordForm
-      action={updateRecordAction}
-      record={record}
-      submitLabel="保存修改"
-      cancelHref="/records"
-    />
+    <>
+      <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+        <div className="flex gap-1">
+          <dt>创建于</dt>
+          <dd className="text-zinc-700 dark:text-zinc-300">{formatDateTime(record.createdAt)}</dd>
+        </div>
+        <div className="flex gap-1">
+          <dt>更新于</dt>
+          <dd className="text-zinc-700 dark:text-zinc-300">{formatDateTime(record.updatedAt)}</dd>
+        </div>
+      </dl>
+
+      <RecordForm
+        action={updateRecordAction}
+        record={record}
+        submitLabel="保存修改"
+        cancelHref="/records"
+      />
+    </>
   )
 }

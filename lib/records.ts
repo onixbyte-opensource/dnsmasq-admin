@@ -1,8 +1,7 @@
 import { io } from "next/cache"
-import { execute, queryRow, queryRows, rowToRecord, type DnsRecord } from "./db"
+import { Prisma } from "./generated/prisma/client"
+import { getDb, toDnsRecord, type DnsRecord } from "./db"
 import type { RecordInput } from "./validate"
-
-const SELECT_ALL = "SELECT * FROM records"
 
 export class DuplicateDomainError extends Error {
   constructor(readonly domain: string) {
@@ -12,6 +11,10 @@ export class DuplicateDomainError extends Error {
 }
 
 function isUniqueViolation(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === "P2002"
+  }
+  // Raw driver errors can still surface from statements outside the query builder.
   const { code, message } = (error ?? {}) as { code?: string; message?: string }
   return (
     code === "SQLITE_CONSTRAINT_UNIQUE" ||
@@ -21,71 +24,98 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Reads go through `await io()`.
+ * Case-insensitive domain ordering.
  *
- * `node:sqlite` is a synchronous driver, so under `cacheComponents` its results would
- * otherwise be captured into the prerendered static shell at build time and the page would
- * show stale rows forever. `io()` suspends during prerender so the read happens at request
- * time. See node_modules/next/dist/docs/01-app/03-api-reference/04-functions/io.md.
+ * `domain` no longer carries COLLATE NOCASE (see prisma/migrations/0001_baseline), so SQLite
+ * would order by binary collation and put "Zoo.local" before "apple.local". Sorting here also
+ * keeps results identical between databases created before that change and after it.
+ */
+const byDomain = (a: DnsRecord, b: DnsRecord): number =>
+  a.domain.localeCompare(b.domain, undefined, { sensitivity: "base" })
+
+/**
+ * Reads must still call `await io()` even though Prisma is asynchronous.
+ *
+ * Next only bails out of prerendering for *sources it recognises* — `fetch`, the request-time
+ * APIs like `cookies()`, or an explicit `io()`. Prisma over better-sqlite3 is a bespoke async
+ * driver, so during a build its queries simply resolve and get baked into the static shell:
+ * verified by grepping the built `.next/server/app/records.html`, which contained real rows
+ * until this guard was restored. The symptom is a page that renders build-time data forever.
+ *
+ * Worth knowing before "tidying" this away simply because the driver is async: the docs'
+ * exemption covers an awaited *fetch*, not every awaited promise.
+ * See node_modules/next/dist/docs/01-app/03-api-reference/04-functions/io.md.
+ *
+ * Callers wrap these in `<Suspense>`, so the shell ships the fallback and rows stream in per
+ * request.
  */
 export async function listRecords(): Promise<DnsRecord[]> {
   await io()
-  return queryRows(`${SELECT_ALL} ORDER BY domain COLLATE NOCASE`).map(rowToRecord)
+  const rows = await getDb().dnsRecord.findMany({ orderBy: { domain: "asc" } })
+  return rows.map(toDnsRecord).sort(byDomain)
 }
 
 export async function getRecord(id: number): Promise<DnsRecord | null> {
   await io()
-  const row = queryRow(`${SELECT_ALL} WHERE id = ?`, id)
-  return row ? rowToRecord(row) : null
+  const row = await getDb().dnsRecord.findUnique({ where: { id } })
+  return row ? toDnsRecord(row) : null
 }
 
 export async function listEnabledRecords(): Promise<DnsRecord[]> {
   await io()
-  return queryRows(`${SELECT_ALL} WHERE enabled = 1 ORDER BY domain COLLATE NOCASE`).map(rowToRecord)
+  const rows = await getDb().dnsRecord.findMany({
+    where: { enabled: true },
+    orderBy: { domain: "asc" },
+  })
+  return rows.map(toDnsRecord).sort(byDomain)
 }
 
-// Writes below only ever run inside Server Actions, which always execute at request time,
-// so they do not need an `io()` guard.
+// Writes below run inside Server Actions, which always execute at request time.
+//
+// They use `updateMany`/`deleteMany` rather than `update`/`delete` deliberately: those raise
+// P2025 when the row is gone, which would turn "someone deleted this in another tab" into a
+// crashed action. The pre-Prisma code was a plain UPDATE/DELETE that quietly matched zero
+// rows, so this keeps that behaviour. @updatedAt is still applied by both.
 
-export function createRecord(input: RecordInput): void {
+export async function createRecord(input: RecordInput): Promise<void> {
   try {
-    execute(
-      "INSERT INTO records (domain, type, value, enabled, comment) VALUES (?, ?, ?, ?, ?)",
-      input.domain,
-      input.type,
-      input.value,
-      input.enabled ? 1 : 0,
-      input.comment
-    )
+    await getDb().dnsRecord.create({
+      data: {
+        domain: input.domain,
+        type: input.type,
+        value: input.value,
+        enabled: input.enabled,
+        comment: input.comment,
+      },
+    })
   } catch (error) {
     if (isUniqueViolation(error)) throw new DuplicateDomainError(input.domain)
     throw error
   }
 }
 
-export function updateRecord(id: number, input: RecordInput): void {
+export async function updateRecord(id: number, input: RecordInput): Promise<void> {
   try {
-    execute(
-      `UPDATE records
-         SET domain = ?, type = ?, value = ?, enabled = ?, comment = ?, updated_at = datetime('now')
-       WHERE id = ?`,
-      input.domain,
-      input.type,
-      input.value,
-      input.enabled ? 1 : 0,
-      input.comment,
-      id
-    )
+    await getDb().dnsRecord.updateMany({
+      where: { id },
+      data: {
+        domain: input.domain,
+        type: input.type,
+        value: input.value,
+        enabled: input.enabled,
+        comment: input.comment,
+      },
+    })
   } catch (error) {
     if (isUniqueViolation(error)) throw new DuplicateDomainError(input.domain)
     throw error
   }
 }
 
-export function removeRecord(id: number): void {
-  execute("DELETE FROM records WHERE id = ?", id)
+export async function removeRecord(id: number): Promise<void> {
+  await getDb().dnsRecord.deleteMany({ where: { id } })
 }
 
-export function setRecordEnabled(id: number, enabled: boolean): void {
-  execute("UPDATE records SET enabled = ?, updated_at = datetime('now') WHERE id = ?", enabled ? 1 : 0, id)
+export async function setRecordEnabled(id: number, enabled: boolean): Promise<void> {
+  await getDb().dnsRecord.updateMany({ where: { id }, data: { enabled } })
 }

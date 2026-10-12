@@ -14,8 +14,14 @@ function toAbsolute(target: string): string {
  * boot locally without any env file; see `.env.example` for the deploy-time values.
  */
 export const env = {
-  /** SQLite database file — the single source of truth for records. */
-  dbPath: toAbsolute(withDefault("DNSMASQ_ADMIN_DB_PATH", "./data/dnsmasq-admin.db")),
+  /**
+   * Prisma connection URL for the SQLite database — the single source of truth for records.
+   *
+   * Left as-is rather than resolved with `toAbsolute()`, because Prisma and better-sqlite3
+   * resolve relative paths against the working directory, which is what `./data/...` in
+   * `.env` already assumes.
+   */
+  databaseUrl: withDefault("DATABASE_URL", "file:./data/dnsmasq-admin.db"),
   /** Managed dnsmasq config file that this app regenerates on every apply. */
   confPath: toAbsolute(withDefault("DNSMASQ_ADMIN_CONF_PATH", "./data/dnsmasq-admin.conf")),
   /** Container that gets restarted through the Docker socket after an apply. */

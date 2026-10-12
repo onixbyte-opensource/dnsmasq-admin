@@ -1,84 +1,68 @@
-import { mkdirSync } from "node:fs"
-import path from "node:path"
-import { DatabaseSync } from "node:sqlite"
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3"
+import { PrismaClient } from "./generated/prisma/client"
+import type { DnsRecordModel } from "./generated/prisma/models"
 import { env } from "./env"
 
 export type RecordType = "A" | "CNAME"
 
-export interface DnsRecord {
-  id: number
-  domain: string
+/**
+ * The row Prisma hands back, with `type` narrowed to the union this app actually allows.
+ *
+ * SQLite has no enum support, so the generated field is a plain string even though every
+ * path that writes it goes through lib/validate.ts. Narrowing here keeps the rest of the app
+ * type-safe without pretending the database enforces it.
+ */
+export type DnsRecord = Omit<DnsRecordModel, "type" | "createdAt" | "updatedAt"> & {
   type: RecordType
-  value: string
-  enabled: boolean
-  comment: string
   createdAt: string
   updatedAt: string
 }
 
-const CREATE_TABLE = `
-CREATE TABLE IF NOT EXISTS records (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  domain     TEXT NOT NULL COLLATE NOCASE UNIQUE,
-  type       TEXT NOT NULL CHECK (type IN ('A','CNAME')),
-  value      TEXT NOT NULL,
-  enabled    INTEGER NOT NULL DEFAULT 1,
-  comment    TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-)
-`
-
-function openDatabase(): DatabaseSync {
-  mkdirSync(path.dirname(env.dbPath), { recursive: true })
-  const db = new DatabaseSync(env.dbPath)
-  // WAL keeps reads from blocking writes; busy_timeout lets concurrent connections wait
-  // instead of failing immediately with SQLITE_BUSY.
-  db.exec("PRAGMA journal_mode = WAL")
-  db.exec("PRAGMA busy_timeout = 5000")
-  db.exec(CREATE_TABLE)
-  return db
+/** Narrow a database string into RecordType, defaulting to `A` like the old mapper did. */
+export function toRecordType(value: string): RecordType {
+  return value === "CNAME" ? "CNAME" : "A"
 }
 
-// Cached on globalThis so Next.js dev HMR does not leak a new handle per reload.
-const globalForDb = globalThis as typeof globalThis & {
-  __dnsmasqAdminDb?: DatabaseSync
+/**
+ * Timestamps travel through the app as ISO strings rather than `Date`.
+ *
+ * They are stored UTC with an explicit `+00:00` offset (see prisma/migrations/0002), so an
+ * ISO string round-trips unambiguously, whereas a `Date` crossing the Server Component /
+ * Client Component boundary invites accidental local-time formatting in the wrong place.
+ * Use lib/datetime.ts to render one.
+ */
+export function toTimestamp(value: Date): string {
+  return value.toISOString()
 }
 
-export function getDb(): DatabaseSync {
-  globalForDb.__dnsmasqAdminDb ??= openDatabase()
-  return globalForDb.__dnsmasqAdminDb
-}
-
-type Row = Record<string, unknown>
-
-/** Normalise whatever the driver hands back into a well-typed record. */
-function rowsOf(result: unknown): Row[] {
-  return Array.isArray(result) ? (result as Row[]) : []
-}
-
-export function rowToRecord(row: Row): DnsRecord {
+export function toDnsRecord(row: DnsRecordModel): DnsRecord {
   return {
-    id: Number(row.id),
-    domain: String(row.domain),
-    type: row.type === "CNAME" ? "CNAME" : "A",
-    value: String(row.value),
-    enabled: Number(row.enabled) === 1,
-    comment: String(row.comment ?? ""),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
+    id: row.id,
+    domain: row.domain,
+    type: toRecordType(row.type),
+    value: row.value,
+    enabled: row.enabled,
+    comment: row.comment,
+    createdAt: toTimestamp(row.createdAt),
+    updatedAt: toTimestamp(row.updatedAt),
   }
 }
 
-export function queryRows(sql: string, ...params: unknown[]): Row[] {
-  return rowsOf(getDb().prepare(sql).all(...params))
+function createClient(): PrismaClient {
+  // The adapter strips the `file:` prefix before handing the path to better-sqlite3.
+  // `timeout` maps to busy_timeout and already defaults to 5000, which is what this app used
+  // before; listed explicitly so the behaviour survives a driver default change.
+  const adapter = new PrismaBetterSqlite3({ url: env.databaseUrl, timeout: 5000 })
+  return new PrismaClient({ adapter })
 }
 
-export function queryRow(sql: string, ...params: unknown[]): Row | null {
-  const row = getDb().prepare(sql).get(...params)
-  return row && typeof row === "object" ? (row as Row) : null
+// Cached on globalThis so Next.js dev HMR does not open a new handle per reload; see the
+// journal_mode migration note below for why one long-lived handle matters here.
+const globalForDb = globalThis as typeof globalThis & {
+  __dnsmasqAdminPrisma?: PrismaClient
 }
 
-export function execute(sql: string, ...params: unknown[]): void {
-  getDb().prepare(sql).run(...params)
+export function getDb(): PrismaClient {
+  globalForDb.__dnsmasqAdminPrisma ??= createClient()
+  return globalForDb.__dnsmasqAdminPrisma
 }

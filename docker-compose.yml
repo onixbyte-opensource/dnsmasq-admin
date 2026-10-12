@@ -17,7 +17,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DNSMASQ_ADMIN_DB_PATH: /data/dnsmasq-admin.db
+      # Must be an absolute path inside the container now: Prisma resolves relative sqlite
+      # paths against the working directory, and the Prisma CLI does not inherit Next's
+      # path handling.
+      DATABASE_URL: file:/data/dnsmasq-admin.db
       # Same mounted config directory dnsmasq reads from.
       DNSMASQ_ADMIN_CONF_PATH: /etc/dnsmasq.d/dnsmasq-admin.conf
       DNSMASQ_CONTAINER_NAME: dnsmasq

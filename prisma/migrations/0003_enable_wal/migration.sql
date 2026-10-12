@@ -1,0 +1,11 @@
+-- Set journal_mode to WAL, exactly as the pre-Prisma code did on every connection open.
+--
+-- WAL lets readers proceed while a write is in flight, which matters here: the SQLite file is
+-- frequently opened by something else at the same time — the sqlite3 CLI, or a database
+-- console in an IDE — and the UI answers from it on every page load.
+--
+-- Unlike busy_timeout, this cannot be set from the app: the better-sqlite3 adapter takes only
+-- a connection URL and driver options, with no hook for PRAGMAs. It is safe to do here
+-- because `PRAGMA journal_mode` is a persistent property of the database file, so it only has
+-- to be set once rather than on every connection. A no-op on databases already in WAL.
+PRAGMA journal_mode = WAL;

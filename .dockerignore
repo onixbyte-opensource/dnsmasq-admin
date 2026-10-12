@@ -1,0 +1,23 @@
+# Without this, `COPY . .` in the builder stage overwrites the alpine-built node_modules with
+# the host's glibc one — better-sqlite3's compiled addon would then fail to load in the musl
+# runtime image. It also keeps files that should never ship out of the image.
+node_modules
+.next
+.git
+.idea
+
+# Local database, generated config and secrets: the real database arrives via a volume.
+/data
+.env
+.env.local
+.env*.local
+*.db
+*.db-wal
+*.db-shm
+
+# Prisma's generated TypeScript client is reproducible from prisma/schema.prisma.
+/lib/generated
+
+Dockerfile
+docker-compose.yml
+README.md

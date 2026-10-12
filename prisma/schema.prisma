@@ -1,0 +1,37 @@
+// dnsmasq-admin — single-table schema mapping the `records` table that shipped with v0.1.0,
+// so existing databases keep working untouched.
+//
+// Keep this file as the single source of truth for the table shape, and keep migrations
+// byte-identical to what `prisma migrate diff` produces from it. Hand-editing a migration to
+// add something this file cannot express — such as column-level COLLATE NOCASE on `domain`, or
+// a CHECK constraint on `type` — leaves Prisma reporting permanent drift, and the next
+// `migrate dev` then proposes a DROP TABLE + rebuild migration that silently drops it. Those
+// two safeguards therefore live in application code; see
+// prisma/migrations/0001_baseline/migration.sql for the details.
+//
+// The `type` field is a plain String because SQLite has no enum support; the union is enforced
+// by lib/validate.ts and by the `RecordType` type in lib/db.ts.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Named `DnsRecord` (table `records`) rather than `Record` to avoid colliding with
+/// TypeScript's built-in `Record<K, V>` utility type.
+model DnsRecord {
+  id        Int      @id @default(autoincrement())
+  domain    String   @unique
+  type      String
+  value     String
+  enabled   Boolean  @default(true)
+  comment   String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("records")
+}

@@ -38,7 +38,7 @@ export async function createRecordAction(
   if (!parsed.ok) return { ok: false, fieldErrors: parsed.fieldErrors }
 
   try {
-    createRecord(parsed.input)
+    await createRecord(parsed.input)
   } catch (error) {
     const duplicate = asDuplicateState(error)
     if (duplicate) return duplicate
@@ -60,7 +60,7 @@ export async function updateRecordAction(
   if (!parsed.ok) return { ok: false, fieldErrors: parsed.fieldErrors }
 
   try {
-    updateRecord(id, parsed.input)
+    await updateRecord(id, parsed.input)
   } catch (error) {
     const duplicate = asDuplicateState(error)
     if (duplicate) return duplicate
@@ -74,7 +74,7 @@ export async function updateRecordAction(
 export async function deleteRecordAction(formData: FormData): Promise<void> {
   const id = readId(formData)
   if (id === null) return
-  removeRecord(id)
+  await removeRecord(id)
   revalidatePath(RECORDS_PATH)
 }
 
@@ -82,7 +82,7 @@ export async function toggleRecordAction(formData: FormData): Promise<void> {
   const id = readId(formData)
   if (id === null) return
   // The hidden field carries the state this record should move *to*.
-  setRecordEnabled(id, formData.get("enabled") === "1")
+  await setRecordEnabled(id, formData.get("enabled") === "1")
   revalidatePath(RECORDS_PATH)
 }
 
