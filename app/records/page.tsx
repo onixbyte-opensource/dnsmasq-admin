@@ -4,11 +4,26 @@ import { env } from "@/lib/env"
 import { listRecords } from "@/lib/records"
 import { applyConfigAction, deleteRecordAction, toggleRecordAction } from "./actions"
 import { ApplyButton } from "./_components/ApplyButton"
+import {
+  disableButtonClass,
+  enableButtonClass,
+  secondaryButtonClass,
+} from "./_components/button-styles"
 import { DeleteButton } from "./_components/DeleteButton"
 
 export const metadata = { title: "域名记录" }
 
 const cardClass = "rounded-lg border border-black/10 p-4 dark:border-white/15"
+
+// Status is shown as a tag rather than plain text so the column can be skimmed without
+// reading the label. The dot carries the same meaning for anyone who cannot tell the two
+// greens/zincs apart.
+const statusTagBase =
+  "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset"
+const statusTagEnabled = `${statusTagBase} bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20`
+const statusTagDisabled = `${statusTagBase} bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-white/5 dark:text-zinc-400 dark:ring-white/15`
+const statusDotEnabled = "size-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400"
+const statusDotDisabled = "size-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500"
 
 export default function RecordsPage() {
   return (
@@ -73,37 +88,40 @@ async function RecordTable() {
         <tbody className="divide-y divide-black/5 dark:divide-white/10">
           {records.map((record) => (
             <tr key={record.id}>
-              <td className="px-4 py-2 font-mono text-zinc-900 dark:text-zinc-100">{record.domain}</td>
+              <td className="px-4 py-2 font-mono text-zinc-900 dark:text-zinc-100">
+                {record.domain}
+              </td>
               <td className="px-4 py-2 text-zinc-600 dark:text-zinc-400">{record.type}</td>
-              <td className="px-4 py-2 font-mono text-zinc-600 dark:text-zinc-400">{record.value}</td>
+              <td className="px-4 py-2 font-mono text-zinc-600 dark:text-zinc-400">
+                {record.value}
+              </td>
               <td className="px-4 py-2">
-                <span
-                  className={
-                    record.enabled
-                      ? "text-emerald-700 dark:text-emerald-400"
-                      : "text-zinc-400 dark:text-zinc-500"
-                  }>
+                <span className={record.enabled ? statusTagEnabled : statusTagDisabled}>
+                  <span
+                    aria-hidden="true"
+                    className={record.enabled ? statusDotEnabled : statusDotDisabled}
+                  />
                   {record.enabled ? "已启用" : "已禁用"}
                 </span>
               </td>
-              <td className="px-4 py-2 text-zinc-600 dark:text-zinc-400">{record.comment || "—"}</td>
+              <td className="px-4 py-2 text-zinc-600 dark:text-zinc-400">
+                {record.comment || "—"}
+              </td>
               <td className="px-4 py-2">
-                <div className="flex items-center gap-3">
-                  <Link
-                    href={`/records/${record.id}`}
-                    className="text-sm text-zinc-700 transition-opacity hover:opacity-70 dark:text-zinc-300">
+                <div className="flex items-center gap-2">
+                  <Link href={`/records/${record.id}`} className={secondaryButtonClass}>
                     编辑
                   </Link>
-                  <form action={toggleRecordAction} className="inline">
+                  <form action={toggleRecordAction} className="inline-flex">
                     <input type="hidden" name="id" value={record.id} />
                     <input type="hidden" name="enabled" value={record.enabled ? "0" : "1"} />
                     <button
                       type="submit"
-                      className="text-sm text-zinc-700 transition-opacity hover:opacity-70 dark:text-zinc-300">
+                      className={record.enabled ? disableButtonClass : enableButtonClass}>
                       {record.enabled ? "禁用" : "启用"}
                     </button>
                   </form>
-                  <form action={deleteRecordAction} className="inline">
+                  <form action={deleteRecordAction} className="inline-flex">
                     <input type="hidden" name="id" value={record.id} />
                     <DeleteButton />
                   </form>

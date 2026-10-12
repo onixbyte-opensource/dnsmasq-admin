@@ -1,9 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState } from "react"
+import { useActionState, useEffect } from "react"
 import type { ActionState } from "@/lib/action-state"
 import type { DnsRecord } from "@/lib/db"
+import { notifyFailure } from "@/lib/notify"
 
 const fieldClass =
   "w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-white/15 dark:bg-white/5 dark:text-zinc-100"
@@ -27,15 +28,15 @@ export function RecordForm({ action, record, submitLabel, cancelHref }: RecordFo
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, { ok: false })
   const errors = state.fieldErrors ?? {}
 
+  // Form-level failures (e.g. the record was deleted before the save landed) go out as
+  // toasts; per-field errors stay inline next to the input they describe.
+  useEffect(() => {
+    if (state.message) notifyFailure(state.message)
+  }, [state])
+
   return (
     <form action={formAction} className="max-w-xl space-y-4">
       {record ? <input type="hidden" name="id" value={record.id} /> : null}
-
-      {state.message ? (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
-          {state.message}
-        </p>
-      ) : null}
 
       <div>
         <label className={labelClass} htmlFor="domain">
